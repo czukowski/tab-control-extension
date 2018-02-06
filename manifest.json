@@ -1,0 +1,10 @@
+{
+    "version": "1.0.0",
+    "manifest_version": 2,
+    "name": "Tab Control",
+    "description": "Open to the right, close to the left",
+    "author": "czukowski",
+    "background": {
+        "scripts": ["src/background.js"]
+    }
+}
