@@ -34,8 +34,7 @@ const trackActiveTab = (tab) => {
     logIndex(tab.windowId);
 };
 
-// When a tab has been activated, track index of the tab that should receive focus on active tab
-// close (current index minus one, or or zero if the current tab is the first one).
+// When a tab has been activated, track its index and ID as the current.
 browser.tabs.onActivated.addListener((activeInfo) => {
     if (onActivatedLock[activeInfo.windowId]) {
         return;
