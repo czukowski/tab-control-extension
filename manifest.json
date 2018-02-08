@@ -6,5 +6,8 @@
     "author": "czukowski",
     "background": {
         "scripts": ["src/background.js"]
+    },
+    "icons": {
+        "512": "icon.svg"
     }
 }
