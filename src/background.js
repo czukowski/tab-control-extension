@@ -100,14 +100,13 @@ browser.tabs.onMoved.addListener((tabId, moveInfo) => {
 browser.tabs.onCreated.addListener((newTab) => {
     debug('Created', newTab.id);
     if (newTab.openerTabId) {
-        // Only move if a tab has been opened from another tab.
-        // 'Independent' tabs, such as search results, will appear at their default place.
+        // If a tab has been opened from another tab, move it after the opener tab (if not already
+        // at that position, need to query opener tab in order to find out).
         browser.tabs
             .get(newTab.openerTabId)
             .then(
                 (openerTab) => {
                     if (newTab.index - openerTab.index !== 1) {
-                        // Only move if the new index is not right after the opener tab index.
                         browser.tabs
                             .move(newTab.id, {index: openerTab.index + 1})
                             .then(() => {}, error);
@@ -116,9 +115,13 @@ browser.tabs.onCreated.addListener((newTab) => {
                 error
             );
     }
-    if (newTab.index < activeTabIndex[newTab.windowId]) {
-        activeTabIndex[newTab.windowId]++;
-        logIndex(newTab.windowId);
+    else if (newTab.windowId in activeTabIndex && newTab.index - activeTabIndex[newTab.windowId] !== 1) {
+        // Move 'independent' tabs, such as search results, after the currently active tab (if not
+        // already at that position). Except for the case when we don't know the active tab index,
+        // although that should be just an edge case.
+        browser.tabs
+            .move(newTab.id, {index: activeTabIndex[newTab.windowId] + 1})
+            .then(() => {}, error);
     }
 });
 

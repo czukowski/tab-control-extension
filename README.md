@@ -17,8 +17,6 @@ modern browsers, but it might be irrelevant for other browsers or not even work.
 Known issues
 ------------
 
- * Unrelated tabs (ie not opened by clicking links on a page) positions are not affected and will
-   appear at their default position, probably at the end. It is intentional, but will likely change.
  * The `browser.tabs.insertRelatedAfterCurrent` and `browser.tabs.selectOwnerOnClose` settings have
    no effect when the add-on is enabled. If `browser.tabs.insertRelatedAfterCurrent` is set to
    `false` (non-default value), new related tabs may briefly appear at the end before being moved
