@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 408 345">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
     <defs>
         <style>.cls-1,.cls-2{fill:none;stroke:#9e005d;stroke-linejoin:round;stroke-width:8px;}.cls-2{stroke-linecap:round;}</style>
     </defs>
-    <g>
+    <g transform="translate(52, 83)" viewBox="0 0 408 345">
         <path class="cls-1" d="M4,341V28C4.06,11.72,12.38,4.06,28,4H145c14.87.19,23.79,7.14,24,24V63H380c14.72,0,23.65,6.85,24,24V341Z"/>
         <line class="cls-2" x1="206" y1="43" x2="206" y2="15"/>
         <line class="cls-2" x1="192" y1="29" x2="220" y2="29"/>
