@@ -12,7 +12,7 @@ Inspired by the old [Tab Control][original] add-on by Angly Cat that is not supp
 anymore. This new add-on is built using Web-Extensions API that is supported by the most of the
 modern browsers, but it might be irrelevant for other browsers or not even work.
 
- [original]: https://addons.mozilla.org/firefox/addon/tab-control/reviews/?src=api
+ [original]: https://addons.mozilla.org/firefox/addon/tab-control/
 
 Known issues
 ------------
