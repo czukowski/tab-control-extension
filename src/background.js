@@ -34,6 +34,16 @@ const trackActiveTab = (tab) => {
     logIndex(tab.windowId);
 };
 
+// Find the currently active tab and update tracking indexes.
+const refreshActiveTab = (windowId) => {
+    browser.tabs
+        .query({windowId: windowId, active: true})
+        .then(
+            (tabs) => assertSingleTab(tabs, trackActiveTab),
+            error
+        );
+};
+
 // When a tab has been activated, track its index and ID as the current.
 browser.tabs.onActivated.addListener((activeInfo) => {
     if (onActivatedLock[activeInfo.windowId]) {
@@ -76,22 +86,8 @@ browser.tabs.onMoved.addListener((tabId, moveInfo) => {
         // branch of code is expected to be executed. The other two `else if` parts are supposed
         // to handle tabs moved programmatically, but they're not tested.
         activeTabIndex[moveInfo.windowId] = moveInfo.toIndex;
+        logIndex(moveInfo.windowId);
     }
-    else if (moveInfo.fromIndex < activeTabIndex[moveInfo.windowId]
-        && moveInfo.toIndex > activeTabIndex[moveInfo.windowId]
-    ) {
-        // One tab less before the currently active one, decrement tracking index.
-        debug('decrement');
-        activeTabIndex[moveInfo.windowId]--;
-    }
-    else if (moveInfo.fromIndex > activeTabIndex[moveInfo.windowId]
-        && moveInfo.toIndex < activeTabIndex[moveInfo.windowId]
-    ) {
-        // One more tab before the currently active one, increment tracking index.
-        debug('increment');
-        activeTabIndex[moveInfo.windowId]++;
-    }
-    logIndex(moveInfo.windowId);
 });
 
 // Move newly open tab to be one to the right of the opener tab, if not already at that position.
@@ -110,6 +106,9 @@ browser.tabs.onCreated.addListener((newTab) => {
                         browser.tabs
                             .move(newTab.id, {index: openerTab.index + 1})
                             .then(() => {}, error);
+                    }
+                    if ( ! newTab.active) {
+                        refreshActiveTab(newTab.windowId);
                     }
                 },
                 error
@@ -152,13 +151,8 @@ browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
             );
     }
     else {
-        // Closing first or non-active tab. Must find out the active tab and update tracking indexes.
-        browser.tabs
-            .query({windowId: removeInfo.windowId, active: true})
-            .then(
-                (tabs) => assertSingleTab(tabs, trackActiveTab),
-                error
-            );
+        // Closing first or non-active tab.
+        refreshActiveTab(removeInfo.windowId);
     }
 });
 
