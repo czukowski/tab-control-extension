@@ -36,7 +36,7 @@ Yes, there are:
 
  * [Tab Open/Close Control][tab-open-close-control] by F. Kolbe, that includes a lot of options,
    but sadly activating tab to the left on close was not working properly and the author hasn't
-   released any updates for several of months, which has prompted me to write this add-on.
+   released any updates for several months, which has prompted me to write this add-on.
  * [Open Tabs Next to Current][open-tabs-next-to-current] by Sebastian Blask, that does exactly
    what it says in its name. Shame I haven't discovered his add-on before I went to lengths to
    implement my own.
