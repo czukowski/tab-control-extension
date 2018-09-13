@@ -44,122 +44,127 @@ const refreshActiveTab = (windowId) => {
         );
 };
 
-// When a tab has been activated, track its index and ID as the current.
-browser.tabs.onActivated.addListener((activeInfo) => {
-    if (onActivatedLock[activeInfo.windowId]) {
-        return;
-    }
-    debug('Activated', activeInfo.tabId);
-    // Must query the active tab before accessing its current index.
+// Function to add event listeners to `browser.tabs` events.
+const init = () => {
+    // When a tab has been activated, track its index and ID as the current.
+    browser.tabs.onActivated.addListener((activeInfo) => {
+        if (onActivatedLock[activeInfo.windowId]) {
+            return;
+        }
+        debug('Activated', activeInfo.tabId);
+        // Must query the active tab before accessing its current index.
+        browser.tabs
+            .get(activeInfo.tabId)
+            .then(trackActiveTab, error);
+    });
+
+    // When a tab has been attached before the currently active one, increment the tracked index
+    // by one since there's one more tab now.
+    browser.tabs.onAttached.addListener((tabId, attachInfo) => {
+        debug('Attached', tabId);
+        if (attachInfo.newPosition <= activeTabIndex[attachInfo.newWindowId]) {
+            activeTabIndex[attachInfo.newWindowId]++;
+            logIndex(attachInfo.oldWindowId);
+        }
+    });
+
+    // When a tab has been detached before the currently active one, decrement the tracked index
+    // by one since there's one tab less now.
+    browser.tabs.onDetached.addListener((tabId, detachInfo) => {
+        debug('Detached', tabId);
+        if (detachInfo.oldPosition <= activeTabIndex[detachInfo.oldWindowId]) {
+            activeTabIndex[detachInfo.oldWindowId]--;
+            logIndex(detachInfo.oldWindowId);
+        }
+    });
+
+    // When a tab has been moved from or to a position before the currently active tab (exclusive or),
+    // increment or decrement the tracked index accordingly since now there's one more or one tab less.
+    browser.tabs.onMoved.addListener((tabId, moveInfo) => {
+        debug('Moved', tabId);
+        if (activeTabId[moveInfo.windowId] === tabId) {
+            // Moving active tab, just update its tracking index.
+            // Note: when moving tabs manually, the moved tabs become active, therefore only this
+            // branch of code is expected to be executed. The other two `else if` parts are supposed
+            // to handle tabs moved programmatically, but they're not tested.
+            activeTabIndex[moveInfo.windowId] = moveInfo.toIndex;
+            logIndex(moveInfo.windowId);
+        }
+    });
+
+    // Move newly open tab to be one to the right of the opener tab, if not already at that position.
+    // Also if the position of the new tab is before the currently active one, incerment the tracked
+    // index by one since there's one more tab now.
+    browser.tabs.onCreated.addListener((newTab) => {
+        debug('Created', newTab.id);
+        if (newTab.openerTabId) {
+            // If a tab has been opened from another tab, move it after the opener tab (if not already
+            // at that position, need to query opener tab in order to find out).
+            browser.tabs
+                .get(newTab.openerTabId)
+                .then(
+                    (openerTab) => {
+                        if (newTab.index - openerTab.index !== 1) {
+                            browser.tabs
+                                .move(newTab.id, {index: openerTab.index + 1})
+                                .then(() => {}, error);
+                        }
+                        if ( ! newTab.active) {
+                            refreshActiveTab(newTab.windowId);
+                        }
+                    },
+                    error
+                );
+        }
+        else if (newTab.windowId in activeTabIndex && newTab.index - activeTabIndex[newTab.windowId] !== 1) {
+            // Move 'independent' tabs, such as search results, after the currently active tab (if not
+            // already at that position). Except for the case when we don't know the active tab index,
+            // although that should be just an edge case.
+            browser.tabs
+                .move(newTab.id, {index: activeTabIndex[newTab.windowId] + 1})
+                .then(() => {}, error);
+        }
+    });
+
+    // Make active tab to be one to the left of the closed tab, if it had focus.
+    browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
+        debug('Removed', tabId);
+        if (removeInfo.isWindowClosing) {
+            // No point in doing anything if the whole window is going to close.
+            return;
+        }
+        onActivatedLock[removeInfo.windowId] = true;
+        debug('current index', activeTabIndex[removeInfo.windowId]);
+        if (tabId === activeTabId[removeInfo.windowId] && activeTabIndex[removeInfo.windowId] > 0) {
+            // Closing active tab and there are some more on the left.
+            debug('query tab at', activeTabIndex[removeInfo.windowId] - 1);
+            browser.tabs
+                .query({windowId: removeInfo.windowId, index: activeTabIndex[removeInfo.windowId] - 1})
+                .then(
+                    (tabs) => {
+                        assertSingleTab(tabs, (tab) => {
+                            debug('activate tab', tab.id, 'at', tab.index);
+                            browser.tabs
+                                .update(tab.id, {active: true})
+                                .then(trackActiveTab, error);
+                        });
+                    },
+                    error
+                );
+        }
+        else {
+            // Closing first or non-active tab.
+            refreshActiveTab(removeInfo.windowId);
+        }
+    });
+
+    // Set initial values on extension load.
     browser.tabs
-        .get(activeInfo.tabId)
-        .then(trackActiveTab, error);
-});
+        .query({currentWindow: true, active: true})
+        .then(
+            (tabs) => assertSingleTab(tabs, trackActiveTab),
+            error
+        );
+};
 
-// When a tab has been attached before the currently active one, increment the tracked index
-// by one since there's one more tab now.
-browser.tabs.onAttached.addListener((tabId, attachInfo) => {
-    debug('Attached', tabId);
-    if (attachInfo.newPosition <= activeTabIndex[attachInfo.newWindowId]) {
-        activeTabIndex[attachInfo.newWindowId]++;
-        logIndex(attachInfo.oldWindowId);
-    }
-});
-
-// When a tab has been detached before the currently active one, decrement the tracked index
-// by one since there's one tab less now.
-browser.tabs.onDetached.addListener((tabId, detachInfo) => {
-    debug('Detached', tabId);
-    if (detachInfo.oldPosition <= activeTabIndex[detachInfo.oldWindowId]) {
-        activeTabIndex[detachInfo.oldWindowId]--;
-        logIndex(detachInfo.oldWindowId);
-    }
-});
-
-// When a tab has been moved from or to a position before the currently active tab (exclusive or),
-// increment or decrement the tracked index accordingly since now there's one more or one tab less.
-browser.tabs.onMoved.addListener((tabId, moveInfo) => {
-    debug('Moved', tabId);
-    if (activeTabId[moveInfo.windowId] === tabId) {
-        // Moving active tab, just update its tracking index.
-        // Note: when moving tabs manually, the moved tabs become active, therefore only this
-        // branch of code is expected to be executed. The other two `else if` parts are supposed
-        // to handle tabs moved programmatically, but they're not tested.
-        activeTabIndex[moveInfo.windowId] = moveInfo.toIndex;
-        logIndex(moveInfo.windowId);
-    }
-});
-
-// Move newly open tab to be one to the right of the opener tab, if not already at that position.
-// Also if the position of the new tab is before the currently active one, incerment the tracked
-// index by one since there's one more tab now.
-browser.tabs.onCreated.addListener((newTab) => {
-    debug('Created', newTab.id);
-    if (newTab.openerTabId) {
-        // If a tab has been opened from another tab, move it after the opener tab (if not already
-        // at that position, need to query opener tab in order to find out).
-        browser.tabs
-            .get(newTab.openerTabId)
-            .then(
-                (openerTab) => {
-                    if (newTab.index - openerTab.index !== 1) {
-                        browser.tabs
-                            .move(newTab.id, {index: openerTab.index + 1})
-                            .then(() => {}, error);
-                    }
-                    if ( ! newTab.active) {
-                        refreshActiveTab(newTab.windowId);
-                    }
-                },
-                error
-            );
-    }
-    else if (newTab.windowId in activeTabIndex && newTab.index - activeTabIndex[newTab.windowId] !== 1) {
-        // Move 'independent' tabs, such as search results, after the currently active tab (if not
-        // already at that position). Except for the case when we don't know the active tab index,
-        // although that should be just an edge case.
-        browser.tabs
-            .move(newTab.id, {index: activeTabIndex[newTab.windowId] + 1})
-            .then(() => {}, error);
-    }
-});
-
-// Make active tab to be one to the left of the closed tab, if it had focus.
-browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
-    debug('Removed', tabId);
-    if (removeInfo.isWindowClosing) {
-        // No point in doing anything if the whole window is going to close.
-        return;
-    }
-    onActivatedLock[removeInfo.windowId] = true;
-    debug('current index', activeTabIndex[removeInfo.windowId]);
-    if (tabId === activeTabId[removeInfo.windowId] && activeTabIndex[removeInfo.windowId] > 0) {
-        // Closing active tab and there are some more on the left.
-        debug('query tab at', activeTabIndex[removeInfo.windowId] - 1);
-        browser.tabs
-            .query({windowId: removeInfo.windowId, index: activeTabIndex[removeInfo.windowId] - 1})
-            .then(
-                (tabs) => {
-                    assertSingleTab(tabs, (tab) => {
-                        debug('activate tab', tab.id, 'at', tab.index);
-                        browser.tabs
-                            .update(tab.id, {active: true})
-                            .then(trackActiveTab, error);
-                    });
-                },
-                error
-            );
-    }
-    else {
-        // Closing first or non-active tab.
-        refreshActiveTab(removeInfo.windowId);
-    }
-});
-
-// Set initial values on extension load.
-browser.tabs
-    .query({currentWindow: true, active: true})
-    .then(
-        (tabs) => assertSingleTab(tabs, trackActiveTab),
-        error
-    );
+init();
