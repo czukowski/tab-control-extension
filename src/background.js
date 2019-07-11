@@ -1,10 +1,19 @@
 "use strict";
 
 // Tracking indexes are required to determine a tab to activate when the current tab is closed.
-// Lock is to prevent handling of `onActivated` events during handling of `onRemoved` events.
 let activeTabId = {};
 let activeTabIndex = {};
+
+// Activated lock is to prevent handling of `onActivated` events during handling of `onRemoved` events.
 let onActivatedLock = {};
+
+// Window lock is to prevent handling of tabs events in windows that have just been open.
+// Also a helper function to check whether the window lock is still active.
+let windowsLock = {};
+const windowLockTimeout = 500;
+const isWindowLocked = (windowId) => windowId in windowsLock;
+
+// Flag to track activated/deactivated status.
 let initialized = false;
 
 // Logging functions, replace with empty functions to disable logging.
@@ -15,7 +24,13 @@ const log = (method, args) => {
 const debug = (...args) => log('debug', args);
 const error = (...args) => log('error', args);
 
-const logIndex = (windowId) => debug('current tab', activeTabId[windowId], 'at', activeTabIndex[windowId]);
+const logInWindowContext = (windowId, ...args) => {
+    if (isWindowLocked(windowId)) {
+        args.unshift('🔒');
+    }
+    debug(...args);
+};
+const logIndex = (windowId) => logInWindowContext(windowId, 'current tab', activeTabId[windowId], 'at', activeTabIndex[windowId]);
 
 // Function to handle `browser.tabs.query` results that return a single tab.
 // Logs error if unexpected count of tabs were returned.
@@ -45,12 +60,37 @@ const refreshActiveTab = (windowId) => {
         );
 };
 
+const refreshWindowLock = (windowId) => {
+    if (isWindowLocked(windowId)) {
+        clearTimeout(windowsLock[windowId]);
+    }
+    windowsLock[windowId] = setTimeout(
+        () => {
+            delete windowsLock[windowId];
+            refreshActiveTab(windowId);
+        },
+        windowLockTimeout
+    );
+};
+
+// When a window has been just open, prevent effects of this add-on on its tabs for a brief period.
+const onWindowOpen = (window) => {
+    refreshWindowLock(window.id);
+};
+
 // When a tab has been activated, track its index and ID as the current.
 const onTabActivated = (activeInfo) => {
-    if (onActivatedLock[activeInfo.windowId]) {
+    logInWindowContext(activeInfo.windowId, 'Activated', activeInfo.tabId);
+
+    if (isWindowLocked(activeInfo.windowId)) {
+        // Don't do anything while there is still a lock on the window.
         return;
     }
-    debug('Activated', activeInfo.tabId);
+    else if (onActivatedLock[activeInfo.windowId]) {
+        // Also don't do anything if there is still a lock on the active tab.
+        return;
+    }
+
     // Must query the active tab before accessing its current index.
     browser.tabs
         .get(activeInfo.tabId)
@@ -60,8 +100,13 @@ const onTabActivated = (activeInfo) => {
 // When a tab has been attached before the currently active one, increment the tracked index
 // by one since there's one more tab now.
 const onTabAttached = (tabId, attachInfo) => {
-    debug('Attached', tabId);
-    if (attachInfo.newPosition <= activeTabIndex[attachInfo.newWindowId]) {
+    logInWindowContext(attachInfo.newWindowId, 'Attached', tabId);
+
+    if (isWindowLocked(attachInfo.newWindowId)) {
+        // Don't do anything while there is still a lock on the window.
+        return;
+    }
+    else if (attachInfo.newPosition <= activeTabIndex[attachInfo.newWindowId]) {
         activeTabIndex[attachInfo.newWindowId]++;
         logIndex(attachInfo.oldWindowId);
     }
@@ -70,8 +115,13 @@ const onTabAttached = (tabId, attachInfo) => {
 // When a tab has been detached before the currently active one, decrement the tracked index
 // by one since there's one tab less now.
 const onTabDetached = (tabId, detachInfo) => {
-    debug('Detached', tabId);
-    if (detachInfo.oldPosition <= activeTabIndex[detachInfo.oldWindowId]) {
+    logInWindowContext(detachInfo.oldWindowId, 'Detached', tabId);
+
+    if (isWindowLocked(detachInfo.oldWindowId)) {
+        // Don't do anything while there is still a lock on the window.
+        return;
+    }
+    else if (detachInfo.oldPosition <= activeTabIndex[detachInfo.oldWindowId]) {
         activeTabIndex[detachInfo.oldWindowId]--;
         logIndex(detachInfo.oldWindowId);
     }
@@ -80,8 +130,13 @@ const onTabDetached = (tabId, detachInfo) => {
 // When a tab has been moved from or to a position before the currently active tab (exclusive or),
 // increment or decrement the tracked index accordingly since now there's one more or one tab less.
 const onTabMoved = (tabId, moveInfo) => {
-    debug('Moved', tabId);
-    if (activeTabId[moveInfo.windowId] === tabId) {
+    logInWindowContext(moveInfo.windowId, 'Moved', tabId);
+
+    if (isWindowLocked(moveInfo.windowId)) {
+        // Don't do anything while there is still a lock on the window.
+        return;
+    }
+    else if (activeTabId[moveInfo.windowId] === tabId) {
         // Moving active tab, just update its tracking index.
         // Note: when moving tabs manually, the moved tabs become active, therefore only this
         // branch of code is expected to be executed. The other two `else if` parts are supposed
@@ -95,8 +150,14 @@ const onTabMoved = (tabId, moveInfo) => {
 // Also if the position of the new tab is before the currently active one, incerment the tracked
 // index by one since there's one more tab now.
 const onTabCreated = (newTab) => {
-    debug('Created', newTab.id);
-    if (newTab.openerTabId) {
+    logInWindowContext(newTab.windowId, 'Created', newTab.id);
+
+    if (isWindowLocked(newTab.windowId)) {
+        // If tab has been created in a window still having a lock on it, delay the lock release.
+        refreshWindowLock(newTab.windowId);
+        return;
+    }
+    else if (newTab.openerTabId) {
         // If a tab has been opened from another tab, move it after the opener tab (if not already
         // at that position, need to query opener tab in order to find out).
         browser.tabs
@@ -127,22 +188,29 @@ const onTabCreated = (newTab) => {
 
 // Make active tab to be one to the left of the closed tab, if it had focus.
 const onTabRemoved = (tabId, removeInfo) => {
-    debug('Removed', tabId);
+    logInWindowContext(removeInfo.windowId, 'Removed', tabId);
+
     if (removeInfo.isWindowClosing) {
         // No point in doing anything if the whole window is going to close.
         return;
     }
+    else if (isWindowLocked(removeInfo.windowId)) {
+        // Also don't do anything while there is still a lock on the window.
+        return;
+    }
+
     onActivatedLock[removeInfo.windowId] = true;
-    debug('current index', activeTabIndex[removeInfo.windowId]);
+    logInWindowContext(removeInfo.windowId, 'current index', activeTabIndex[removeInfo.windowId]);
+
     if (tabId === activeTabId[removeInfo.windowId] && activeTabIndex[removeInfo.windowId] > 0) {
         // Closing active tab and there are some more on the left.
-        debug('query tab at', activeTabIndex[removeInfo.windowId] - 1);
+        logInWindowContext(removeInfo.windowId, 'query tab at', activeTabIndex[removeInfo.windowId] - 1);
         browser.tabs
             .query({windowId: removeInfo.windowId, index: activeTabIndex[removeInfo.windowId] - 1})
             .then(
                 (tabs) => {
                     assertSingleTab(tabs, (tab) => {
-                        debug('activate tab', tab.id, 'at', tab.index);
+                        logInWindowContext(tab.windowId, 'activate tab', tab.id, 'at', tab.index);
                         browser.tabs
                             .update(tab.id, {active: true})
                             .then(trackActiveTab, error);
@@ -161,6 +229,7 @@ const onTabRemoved = (tabId, removeInfo) => {
 const init = () => {
     try {
         // Add event listeners.
+        browser.windows.onCreated.addListener(onWindowOpen);
         browser.tabs.onActivated.addListener(onTabActivated);
         browser.tabs.onAttached.addListener(onTabAttached);
         browser.tabs.onDetached.addListener(onTabDetached);
@@ -187,6 +256,7 @@ const init = () => {
 const deinit = () => {
     try {
         // Remove envent listeners.
+        browser.windows.onCreated.removeListener(onWindowOpen);
         browser.tabs.onActivated.removeListener(onTabActivated);
         browser.tabs.onAttached.removeListener(onTabAttached);
         browser.tabs.onDetached.removeListener(onTabDetached);
