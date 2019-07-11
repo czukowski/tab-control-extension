@@ -5,6 +5,7 @@
 let activeTabId = {};
 let activeTabIndex = {};
 let onActivatedLock = {};
+let initialized = false;
 
 // Logging functions, replace with empty functions to disable logging.
 const log = (method, args) => {
@@ -158,21 +159,62 @@ const onTabRemoved = (tabId, removeInfo) => {
 
 // Function to add event listeners to `browser.tabs` events.
 const init = () => {
-    // Add event listeners.
-    browser.tabs.onActivated.addListener(onTabActivated);
-    browser.tabs.onAttached.addListener(onTabAttached);
-    browser.tabs.onDetached.addListener(onTabDetached);
-    browser.tabs.onMoved.addListener(onTabMoved);
-    browser.tabs.onCreated.addListener(onTabCreated);
-    browser.tabs.onRemoved.addListener(onTabRemoved);
+    try {
+        // Add event listeners.
+        browser.tabs.onActivated.addListener(onTabActivated);
+        browser.tabs.onAttached.addListener(onTabAttached);
+        browser.tabs.onDetached.addListener(onTabDetached);
+        browser.tabs.onMoved.addListener(onTabMoved);
+        browser.tabs.onCreated.addListener(onTabCreated);
+        browser.tabs.onRemoved.addListener(onTabRemoved);
 
-    // Set initial values on extension load.
-    browser.tabs
-        .query({currentWindow: true, active: true})
-        .then(
-            (tabs) => assertSingleTab(tabs, trackActiveTab),
-            error
-        );
+        // Set initial values on extension load.
+        browser.tabs
+            .query({currentWindow: true, active: true})
+            .then(
+                (tabs) => assertSingleTab(tabs, trackActiveTab),
+                error
+            );
+
+        debug('☀️ Initialized');
+        initialized = true;
+    } catch (e) {
+        error(e);
+    }
 };
+
+// Function to remove event listeners, effectively disabling the add-on.
+const deinit = () => {
+    try {
+        // Remove envent listeners.
+        browser.tabs.onActivated.removeListener(onTabActivated);
+        browser.tabs.onAttached.removeListener(onTabAttached);
+        browser.tabs.onDetached.removeListener(onTabDetached);
+        browser.tabs.onMoved.removeListener(onTabMoved);
+        browser.tabs.onCreated.removeListener(onTabCreated);
+        browser.tabs.onRemoved.removeListener(onTabRemoved);
+
+        // Remove tabs state.
+        activeTabId = {};
+        activeTabIndex = {};
+        onActivatedLock = {};
+
+        debug('🌙 Deinitialized');
+        initialized = false;
+    } catch (e) {
+        error(e);
+    }
+};
+
+// Function to listen to `toggle` command, to enable or disable the add-on using a keyboard shortcut.
+browser.commands.onCommand.addListener((command) => {
+    if (command === 'toggle') {
+        if (initialized) {
+            deinit();
+        } else {
+            init();
+        }
+    }
+});
 
 init();

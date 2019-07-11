@@ -1,11 +1,16 @@
 {
-    "version": "1.1.1",
+    "version": "1.1.2",
     "manifest_version": 2,
     "name": "Tab Control",
     "description": "Open tabs to the right, close to the left",
     "author": "czukowski",
     "background": {
         "scripts": ["src/background.js"]
+    },
+    "commands": {
+        "toggle": {
+            "description": "Quick add-on toggle hotkey"
+        }
     },
     "icons": {
         "512": "icon.svg"
